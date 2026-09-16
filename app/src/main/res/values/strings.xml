@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">AgentPhone</string>
+    <string name="channel_link">Bridge link</string>
+    <string name="channel_link_desc">Persistent connection to your Mac</string>
+    <string name="channel_agent">Agent alerts</string>
+    <string name="channel_agent_desc">Task-done pings and approval requests</string>
+</resources>
