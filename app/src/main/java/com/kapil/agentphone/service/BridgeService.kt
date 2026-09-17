@@ -7,11 +7,14 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
+import android.Manifest
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.ContextCompat
 import com.kapil.agentphone.MainActivity
 import com.kapil.agentphone.R
 import com.kapil.agentphone.data.Approval
@@ -138,6 +141,31 @@ class BridgeService : Service() {
     }
 
     private fun notifyAgent(title: String, body: String, approval: Approval?) {
+        // POST_NOTIFICATIONS is user-revocable: check every time, and never
+        // let the tray take the service down with it.
+        if (Build.VERSION.SDK_INT >= 33 &&
+            ContextCompat.checkSelfPermission(
+                this, Manifest.permission.POST_NOTIFICATIONS
+            ) != PackageManager.PERMISSION_GRANTED
+        ) {
+            return
+        }
+        try {
+            doNotifyAgent(title, body, approval)
+        } catch (_: SecurityException) {
+            // Tray denied mid-run: stay alive, the in-app lists still update.
+        }
+    }
+
+    private fun canPostNotifications(): Boolean {
+        if (Build.VERSION.SDK_INT < 33) return true
+        return ContextCompat.checkSelfPermission(
+            this, Manifest.permission.POST_NOTIFICATIONS
+        ) == PackageManager.PERMISSION_GRANTED
+    }
+
+    @Suppress("MissingPermission")
+    private fun doNotifyAgent(title: String, body: String, approval: Approval?) {
         val open = PendingIntent.getActivity(
             this, 1, Intent(this, MainActivity::class.java),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
