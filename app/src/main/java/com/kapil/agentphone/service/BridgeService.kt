@@ -12,6 +12,7 @@ import android.content.pm.ServiceInfo
 import android.Manifest
 import android.os.Build
 import android.os.IBinder
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
@@ -52,12 +53,14 @@ class BridgeService : Service() {
         super.onCreate()
         createChannels()
         enterForeground()
+        Log.d("Bridge", "service created")
         BridgeClient.onAgentAlert = { title, body, approval ->
             notifyAgent(title, body, approval)
         }
         val prefs = Prefs(applicationContext)
         svcScope.launch {
             prefs.link.collect {
+                Log.d("Bridge", "prefs emitted hostLen=${it.host.length} tokenLen=${it.token.length}")
                 BridgeClient.configure(it)
                 BridgeClient.start(applicationContext)
             }

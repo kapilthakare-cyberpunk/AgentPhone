@@ -2,6 +2,7 @@ package com.kapil.agentphone.data
 
 import android.content.Context
 import android.net.ConnectivityManager
+import android.util.Log
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
@@ -45,6 +46,7 @@ object BridgeClient {
     private var cfg: LinkPrefs = LinkPrefs("", 9876, "")
     private var lastSeen = 0L
     private var msgId = 0L
+    private var openSignal: CompletableDeferred<Boolean>? = null
     private var netWatching = false
 
     private val _state = MutableStateFlow<ConnState>(ConnState.Disconnected)
@@ -98,19 +100,22 @@ object BridgeClient {
     private suspend fun runSession(): Long {
         val opened = CompletableDeferred<Boolean>()
         val closed = CompletableDeferred<Unit>()
+        openSignal = opened
+        Log.d("Bridge", "connecting ${cfg.host}:${cfg.port}")
         val req = Request.Builder().url("ws://${cfg.host}:${cfg.port}/").build()
         val socket = client.newWebSocket(req, listener(opened, closed))
         ws = socket
-        val ok = withTimeoutOrNull(10_000) { opened.await() } == true
+        val ok = withTimeoutOrNull(15_000) { opened.await() } == true
         if (!ok) {
             socket.cancel()
             ws = null
+            openSignal = null
             return 0
         }
         val t0 = System.currentTimeMillis()
-        withTimeoutOrNull(90_000L * 60) { closed.await() }
+        closed.await()
         ws = null
-        scope.launch { watchdog() }.cancel()
+        openSignal = null
         return System.currentTimeMillis() - t0
     }
 
@@ -144,6 +149,7 @@ object BridgeClient {
         }
 
         override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+            Log.d("Bridge", "ws failure: ${t.message}")
             _state.value = ConnState.Disconnected
             opened.complete(false)
             if (!closed.isCompleted) closed.complete(Unit)
@@ -191,6 +197,8 @@ object BridgeClient {
         when (msg.optString("type")) {
             "hello-ok" -> {
                 _state.value = ConnState.Connected
+                openSignal?.complete(true)
+                Log.d("Bridge", "hello-ok")
                 val arr = msg.optJSONArray("sessions")
                 if (arr != null) {
                     _sessions.value = (0 until arr.length()).map { arr.getJSONObject(it).toSession() }
