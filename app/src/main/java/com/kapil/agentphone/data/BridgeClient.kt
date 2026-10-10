@@ -38,7 +38,12 @@ import java.util.concurrent.TimeUnit
 object BridgeClient {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val client: OkHttpClient by lazy {
-        OkHttpClient.Builder().pingInterval(25, TimeUnit.SECONDS).build()
+        OkHttpClient.Builder()
+            .pingInterval(25, TimeUnit.SECONDS)
+            .connectTimeout(10, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
+            .writeTimeout(30, TimeUnit.SECONDS)
+            .build()
     }
 
     private var job: Job? = null
@@ -101,8 +106,13 @@ object BridgeClient {
         val opened = CompletableDeferred<Boolean>()
         val closed = CompletableDeferred<Unit>()
         openSignal = opened
-        Log.d("Bridge", "connecting ${cfg.host}:${cfg.port}")
-        val req = Request.Builder().url("ws://${cfg.host}:${cfg.port}/").build()
+        val host = cfg.host.trim()
+        if (host.isBlank()) {
+            Log.w("Bridge", "host blank, abort")
+            return 0
+        }
+        Log.d("Bridge", "connecting ${host}:${cfg.port}")
+        val req = Request.Builder().url("ws://${host}:${cfg.port}/").build()
         val socket = client.newWebSocket(req, listener(opened, closed))
         ws = socket
         val ok = withTimeoutOrNull(15_000) { opened.await() } == true
@@ -162,7 +172,9 @@ object BridgeClient {
             if (_state.value == ConnState.Connected &&
                 System.currentTimeMillis() - lastSeen > 90_000
             ) {
+                Log.w("Bridge", "watchdog stale connection")
                 ws?.close(1000, "stale")
+                _state.value = ConnState.Disconnected
                 return
             }
             if (_state.value != ConnState.Connected) return
@@ -287,7 +299,9 @@ object BridgeClient {
     }
 
     fun spawn(command: String, cwd: String) {
-        sendRaw(JSONObject().put("type", "spawn").put("command", command).put("cwd", cwd))
+        if (command.isBlank()) return
+        val safeCwd = cwd.trim().takeIf { it.isNotBlank() } ?: "/"
+        sendRaw(JSONObject().put("type", "spawn").put("command", command.trim()).put("cwd", safeCwd))
     }
 
     fun input(id: String, text: String) {
